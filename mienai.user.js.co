@@ -1,41 +1,43 @@
 `// ==UserScript==
-// @name Mienai
-// @author queue
+// @name        Mienai
+// @author      queue
 // @description Hidden thread synchronization between 4chan and catalog.neet.tv.
-// @version 0.0.1
+// @namespace   http://hakase.org
 //
-// @match *://catalog.neet.tv/*/
-// @match *://catalog.neet.tv/robots.txt
-// @match *://boards.4chan.org/*
+// @version     0.0.1
 //
-// @grant none
-// ==/UserScript==`
+// @match       *://catalog.neet.tv/*
+// @match       *://boards.4chan.org/*
+//
+// @grant       none
+// ==/UserScript==
+`
 
 "use strict"
 
-handlers =
+handler =
   catalog-iframe: !->
     console.log "on catalog iframe!"
   catalog: !->
-    console.log "on catalog for #board !"
+    console.log "on catalog for #board!"
   yotsuba-iframe: !->
     console.log "on 4chan iframe!"
   yotsuba: !->
-    console.log "on board #board !"
+    console.log "on board #board!"
 
 # route page to handler
-switch window.location.hostname
+switch location.hostname
 case \catalog.neet.tv
-  if window.location.pathname is \/robots.txt
-    do handlers.catalog-iframe
-  else if window.location.pathname.match /^\/([a-z]+)\/$/
+  if pathname is \/robots.txt
+    do handler.catalog-iframe
+  else if location.pathname.match /^\/([a-z]+)\/$/
     board = that.1
-    do handlers.catalog
+    do handler.catalog
 
 case \boards.4chan.org
-  if window.location.pathname is \/robots.txt
+  if location.pathname is \/robots.txt
     do handler.yotsuba-iframe
-  else if window.location.pathname.match /^\/([a-z]+)(?:\/\d+)?$/
+  else if location.pathname.match /^\/([a-z]+)\/(?:\d+)?$/
     board = that.1
     do handler.yotsuba
   else
