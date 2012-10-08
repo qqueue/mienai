@@ -4,9 +4,9 @@
 // @description Hidden thread synchronization between 4chan and catalog.neet.tv.
 // @namespace   http://hakase.org
 //
-// @version     0.1.0
+// @version     0.2.0
 //
-// @match       *://catalog.neet.tv/*
+// @match       http://catalog.neet.tv/*
 // @match       *://boards.4chan.org/*
 //
 // @grant       none
@@ -15,7 +15,6 @@
 
 "use strict"
 
-const pcol = location.protocol
 const catalog = \catalog.neet.tv
 const yotsuba = \boards.4chan.org
 
@@ -41,7 +40,10 @@ set = !(key, val) -> localStorage[key] = JSON.stringify val
 # Handlers for each class of page
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
-    return unless data? and origin is "#pcol//#yotsuba"
+    console.log origin
+    # the catalog only exists on HTTP, so explicitly handle both 4chan origins
+    unless data? and (origin is "http://#yotsuba" or origin is "https://#yotsuba")
+      return
 
     if (board = data.board)
       hidden = get "hide-#board"
@@ -91,24 +93,38 @@ catalog-page = !->
 
           thumb.dispatchEvent(&)
 
-  frame = document.createElement \iframe
-    &src = "//#yotsuba/robots.txt"
-    &id = \yotsuba-frame
-    &addEventListener \load !->
+  loading = 2 # async madness
+  onload = !->
+    if (--loading) is 0
       # hide existing threads
       console.log "sending existing threads to 4chan from catalog..."
       send hide: t for t in get "hide-#board"
+
+  http-frame = document.createElement \iframe
+    &src = "http://#yotsuba/robots.txt"
+    &id = \yotsuba-http
+    &addEventListener \load onload
+    document.head.appendChild(&)
+
+  https-frame = document.createElement \iframe
+    &src = "https://#yotsuba/robots.txt"
+    &id = \yotsuba-https
+    &addEventListener \load onload
     document.head.appendChild(&)
 
   send = !->
     it.board = board
     # XXX chrome doesn't allow access to contentWindow from a userscript, for
     # whatever reason. injection to get around this
-    if frame.contentWindow
-      that.postMessage it, "#pcol//#yotsuba"
+    if http-frame.contentWindow
+      http-frame.contentWindow.postMessage it, "http://#yotsuba"
+      https-frame.contentWindow.postMessage it, "https://#yotsuba"
     else
-      inject "document.getElementById('yotsuba-frame')
-        .contentWindow.postMessage(#{JSON.stringify(it)}, '#pcol//#yotsuba')"
+      inject do
+        "console.log('injection');document.getElementById('yotsuba-http')
+          .contentWindow.postMessage(#{JSON.stringify it }, 'http://#yotsuba');
+         document.getElementById('yotsuba-https')
+          .contentWindow.postMessage(#{JSON.stringify it}, 'https://#yotsuba')"
 
   # Detect thread hide events. Until I can make a pull request for actual
   # CustomEvents on thread hide, this is a hack to detect 'storage' changes.
@@ -140,7 +156,7 @@ catalog-page = !->
 
 yotsuba-iframe = !->
   addEventListener \message !({data, origin}: e) ->
-    return unless data? and origin is "#pcol//#catalog"
+    return unless data? and origin is "http://#catalog"
 
     if (board = data.board)
       hidden = get "4chan-hide-t-#board"
@@ -175,7 +191,7 @@ yotsuba-page = !->
         ThreadHiding.hidden = new-hidden
 
   frame = document.createElement \iframe
-    &src = "//#catalog/robots.txt"
+    &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
     &id = \neet-frame
     &addEventListener \load !->
       # hide existing threads on catalog
@@ -187,10 +203,10 @@ yotsuba-page = !->
     it.board = board
     # see note about chrome
     if frame.contentWindow
-      that.postMessage it, "#pcol//#catalog"
+      that.postMessage it, "http://#catalog"
     else
       inject "document.getElementById('neet-frame')
-        .contentWindow.postMessage(#{JSON.stringify(it)}, '#pcol//#catalog')"
+        .contentWindow.postMessage(#{JSON.stringify it}, 'http://#catalog')"
 
   # wrap ThreadHiding to send us custom events
   inject !->
