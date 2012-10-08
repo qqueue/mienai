@@ -57,10 +57,11 @@ catalog-page = !->
     # our iframe counterpart changed something, so update DOM to match
     catalog-threads := try JSON.parse localStorage."hide-#board" catch {}
 
+    # TODO unhide threads
+    # query select existing threads and check if they are in the hash
     for t in catalog-threads
       console.log "hiding #t on catalog page..."
       document.getElementById "thread-#t" ?.style.display = \none
-    # TODO unhide threads
 
     # update hidden information
     num = Object.keys catalog-threads .length
@@ -129,8 +130,9 @@ yotsuba-page = !->
     # use extension functions
     inject !->
       console.log "4chan iframe changed, hiding new threads..."
-      ThreadHiding.load!
       # TODO unhide threads
+      # make use of existing ThreadHiding.hidden hash
+      ThreadHiding.load!
       for t in ThreadHiding.hidden
         if $.id "sa#t"
           unless that.hasAttribute \data-hidden
