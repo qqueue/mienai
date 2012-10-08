@@ -17,7 +17,7 @@ supported. Stand by for a 4chan-X version.**
 [Download the latest version here.](https://github.com/qqueue/mienai/downloads)
 
 If you're on Firefox >=14 with Greasemonkey >=1.3, it should just werk. If you're
-on Chrome >=22, save the file to oyour computer, open up the Extensions page,
+on Chrome >=22, save the file to your computer, open up the Extensions page,
 and drag `mienai.user.js` to install.
 
 If you're on Opera >=12.10, `mienai` will likely work, but I don't care enough
