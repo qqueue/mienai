@@ -15,31 +15,67 @@
 
 "use strict"
 
-handler =
-  catalog-iframe: !->
-    console.log "on catalog iframe!"
-  catalog: !->
-    console.log "on catalog for #board!"
-  yotsuba-iframe: !->
-    console.log "on 4chan iframe!"
-  yotsuba: !->
-    console.log "on board #board!"
+const pcol = location.protocol
+const catalog = \catalog.neet.tv
+const yotsuba = \boards.4chan.org
+
+catalog-iframe =  !->
+  console.log "on catalog iframe!"
+  addEventListener \message !({data, origin}: e) ->
+    console.log e
+    return unless origin is "#pcol//#yotsuba"
+    console.log "message from #origin: #data!"
+
+catalog-page = !->
+  console.log "on catalog for #board!"
+  addEventListener \storage !(e) ->
+    console.log e
+
+  frame = document.createElement \iframe
+    &src = "//#yotsuba/robots.txt"
+    document.head.appendChild(&)
+
+  send = ->
+    frame.contentWindow.postMessage it, "#pcol//#yotsuba"
+
+  document.addEventListener \click !->
+    send "clicked!"
+
+yotsuba-iframe = !->
+  console.log "on 4chan iframe!"
+  addEventListener \message !({data, origin}: e) ->
+    console.log e
+    return unless origin is "#pcol//#catalog"
+    console.log "message from #origin: #data!"
+
+yotsuba-page = !->
+  console.log "on board #board!"
+  addEventListener \storage !(e) ->
+    console.log e
+
+  frame = document.createElement \iframe
+    &src = "//#catalog/robots.txt"
+    document.head.appendChild(&)
+
+  send = ->
+    frame.contentWindow.postMessage it, "#pcol//#catalog"
+
+  document.addEventListener \click !->
+    send "clicked!"
 
 # route page to handler
 switch location.hostname
-case \catalog.neet.tv
-  if pathname is \/robots.txt
-    do handler.catalog-iframe
+case catalog
+  if location.pathname is \/robots.txt
+    do catalog-iframe
   else if location.pathname.match /^\/([a-z]+)\/$/
     board = that.1
-    do handler.catalog
+    do catalog-page
 
-case \boards.4chan.org
+case yotsuba
   if location.pathname is \/robots.txt
-    do handler.yotsuba-iframe
+    do yotsuba-iframe
   else if location.pathname.match /^\/([a-z]+)\/(?:\d+)?$/
     board = that.1
-    do handler.yotsuba
-  else
-    console.log "on thread page..."
+    do yotsuba-page
 
