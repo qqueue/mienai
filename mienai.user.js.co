@@ -36,7 +36,7 @@ set = !(key, val) -> localStorage[key] = localStorage JSON.stringify val
 # Handlers:
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
-    return unless data? or origin is "#pcol//#yotsuba"
+    return unless data? and origin is "#pcol//#yotsuba"
     console.log "message to catalog iframe from 4chan:"
     console.log data
 
