@@ -29,6 +29,10 @@ inject = !(code) ->
       }())"
     document.head.appendChild(&)
 
+# defaults to new object
+get = -> try JSON.parse localStorage[it] catch {}
+set = !(key, val) -> localStorage[key] = localStorage JSON.stringify val
+
 # Handlers:
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
@@ -37,7 +41,7 @@ catalog-iframe =  !->
     console.log data
 
     {board} = data
-    catalog-threads = try JSON.parse localStorage."hide-#board" catch {}
+    catalog-threads = get "hide-#board"
 
     if data.hide
       console.log "hiding #that on catalog iframe"
@@ -46,16 +50,16 @@ catalog-iframe =  !->
       console.log "unhiding #that on catalog iframe"
       delete catalog-threads[that]
 
-    localStorage."hide-#board" = JSON.stringify catalog-threads
+    set "hide-#board" catalog-threads
 
 catalog-page = !->
   # pull existing hidden threads, if any
-  catalog-threads = try JSON.parse localStorage."hide-#board" catch {}
+  catalog-threads = get "hide-#board"
 
   addEventListener \storage !(e) ->
     console.log "catalog iframe changed data, updating catalog page..."
     # our iframe counterpart changed something, so update DOM to match
-    catalog-threads := try JSON.parse localStorage."hide-#board" catch {}
+    catalog-threads := get "hide-#board"
 
     # TODO unhide threads
     # query select existing threads and check if they are in the hash
@@ -111,7 +115,7 @@ yotsuba-iframe = !->
     console.log data
 
     {board} = data
-    yotsuba-threads = try JSON.parse localStorage."4chan-hide-t-#board" catch {}
+    yotsuba-threads = get "4chan-hide-t-#board"
 
     if data.hide
       console.log "hiding #that on 4chan"
@@ -120,14 +124,13 @@ yotsuba-iframe = !->
       console.log "unhiding #that on 4chan"
       delete yotsuba-threads[that]
 
-    localStorage."4chan.hide-t-#board" = JSON.stringify yotsuba-threads
+    set "4chan.hide-t-#board" yotsuba-threads
 
 yotsuba-page = !->
-  yotsuba-threads = try JSON.parse localStorage."4chan-hide-t-#board" catch {}
+  yotsuba-threads = get "4chan-hide-t-#board"
 
   # localStorage changed, update UI
   addEventListener \storage !(e) ->
-    # use extension functions
     inject !->
       console.log "4chan iframe changed, hiding new threads..."
       # TODO unhide threads
