@@ -4,7 +4,7 @@
 // @description Hidden thread synchronization between 4chan and catalog.neet.tv.
 // @namespace   http://hakase.org
 //
-// @version     0.0.1
+// @version     0.1.0
 //
 // @match       *://catalog.neet.tv/*
 // @match       *://boards.4chan.org/*
@@ -29,145 +29,183 @@ inject = !(code) ->
       }())"
     document.head.appendChild(&)
 
+    # cleanup
+    setTimeout do
+      !-> document.head.removeChild(&)
+      100ms
+
 # defaults to new object
 get = -> try JSON.parse localStorage[it] catch {}
-set = !(key, val) -> localStorage[key] = localStorage JSON.stringify val
+set = !(key, val) -> localStorage[key] = JSON.stringify val
 
-# Handlers:
+# Handlers for each class of page
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
     return unless data? and origin is "#pcol//#yotsuba"
-    console.log "message to catalog iframe from 4chan:"
-    console.log data
 
-    {board} = data
-    catalog-threads = get "hide-#board"
+    if (board = data.board)
+      hidden = get "hide-#board"
 
-    if data.hide
-      console.log "hiding #that on catalog iframe"
-      catalog-threads[that] = true
-    else if data.show
-      console.log "unhiding #that on catalog iframe"
-      delete catalog-threads[that]
+      if data.hide
+        console.log "setting hide: #that on catalog iframe"
+        hidden[that] = true
+      else if data.show
+        console.log "setting show: #that on catalog iframe"
+        delete hidden[that]
 
-    set "hide-#board" catalog-threads
+      set "hide-#board" hidden
 
 catalog-page = !->
-  # pull existing hidden threads, if any
-  catalog-threads = get "hide-#board"
+  # get existing hidden threads, if any, so we can see which threads became
+  # hidden after the mutation event. Unlike 4chan-JS, fourcat doesn't expose
+  # the list of hidden threads outside of localStorage.
+  hidden = get "hide-#board"
 
   addEventListener \storage !(e) ->
     console.log "catalog iframe changed data, updating catalog page..."
     # our iframe counterpart changed something, so update DOM to match
-    catalog-threads := get "hide-#board"
+    hidden := get "hide-#board"
 
-    # TODO unhide threads
-    # query select existing threads and check if they are in the hash
-    for t in catalog-threads
-      console.log "hiding #t on catalog page..."
-      document.getElementById "thread-#t" ?.style.display = \none
+    # because fourcat keeps its variables private, the best way I can think
+    # to resynchronize the state of the UI is to clearHiddenThreads() then
+    # toggleHiddenThread for each thread, by making synthetic events on their
+    # elements. really nead a pull request for better hooks here.
+    console.log "resetting hidden threads on catalog..."
+    document.getElementById \filters-clear-hidden .click!
+    for tid in hidden
+      if (thumb = document.getElementById "thumb-#tid")
 
-    # update hidden information
-    num = Object.keys catalog-threads .length
-    document.getElementById \hidden-count
-      .textContent = num
-    document.getElementById \hidden-label
-      .style.display = if num > 0 then \inline else \none
+        # simulate shift-click
+        document.createEvent \MouseEvent
+          &initMouseEvent do
+            \mousedown true true
+            window
+            1 # click count
+            0 0 0 0 # position, don't care
+            false # ctrl
+            false # alt
+            true # shift
+            false # meta
+            0 # button
+            null
+
+          thumb.dispatchEvent(&)
 
   frame = document.createElement \iframe
     &src = "//#yotsuba/robots.txt"
+    &id = \yotsuba-frame
     &addEventListener \load !->
       # hide existing threads
       console.log "sending existing threads to 4chan from catalog..."
-      for t in catalog-threads
-        send hide: t
+      send hide: t for t in get "hide-#board"
     document.head.appendChild(&)
 
   send = !->
     it.board = board
-    frame.contentWindow.postMessage it, "#pcol//#yotsuba"
+    # XXX chrome doesn't allow access to contentWindow from a userscript, for
+    # whatever reason. injection to get around this
+    if frame.contentWindow
+      that.postMessage it, "#pcol//#yotsuba"
+    else
+      inject "document.getElementById('yotsuba-frame')
+        .contentWindow.postMessage(#{JSON.stringify(it)}, '#pcol//#yotsuba')"
 
   # Detect thread hide events. Until I can make a pull request for actual
   # CustomEvents on thread hide, this is a hack to detect 'storage' changes.
   # What is also infurating is the fact that the 'storage' event _only_ fires
   # on windows _other_ than the one that makes the change. I cannot fathom how
-  # that is more useful than having it fire everywhere. I would be listening to
-  # that, but I can't, so instead, check manually for changes any time the
-  # document is clicked.
-  document.addEventListener \click !->
-    setTimeout do
-      !->
-        console.log "checking for new hidden threads on catalog..."
-        new-threads = try JSON.parse localStorage."hide-#board"
-        if new-threads
-          for t in new-threads
-            send hide: t unless t in catalog-threads # was already hidden
-          for t in catalog-threads
-            send show: t unless t in new-threads # no longer hidden
+  # that is more useful than having it fire everywhere. So instead, listen to
+  # DOM changes
+  o = new (window.MutationObserver or window.WebKitMutationObserver) !->
+    console.log "checking for new hidden threads on catalog..."
 
-          catalog-threads := new-threads
-      1000ms
+    new-hidden = try JSON.parse localStorage."hide-#board"
+    if new-hidden
+      for t in new-hidden
+        send hide: t unless t in hidden # was already hidden
+      for t in hidden
+        send show: t unless t in new-hidden # no longer hidden
+    else
+      # hash was removed, unhide all
+      send show: t for t in hidden
+
+    # update
+    hidden := new-hidden or {}
+  o.observe do
+    document.getElementById \hidden-label
+    {+attributes, attributeFilter: <[style]>} # hidden and unhidden
+  o.observe do
+    document.getElementById \hidden-count
+    {+childList} # when textContent "count" changes
 
 yotsuba-iframe = !->
   addEventListener \message !({data, origin}: e) ->
     return unless data? and origin is "#pcol//#catalog"
-    console.log "message to 4chan iframe from catalog!"
-    console.log data
 
-    {board} = data
-    yotsuba-threads = get "4chan-hide-t-#board"
+    if (board = data.board)
+      hidden = get "4chan-hide-t-#board"
 
-    if data.hide
-      console.log "hiding #that on 4chan"
-      yotsuba-threads[that] = Date.now!
-    else if data.show
-      console.log "unhiding #that on 4chan"
-      delete yotsuba-threads[that]
+      if data.hide
+        console.log "setting hide: #that on 4chan iframe"
+        hidden[that] = Date.now!
+      else if data.show
+        console.log "setting show: #that on 4chan iframe"
+        delete hidden[that]
 
-    set "4chan.hide-t-#board" yotsuba-threads
+      set "4chan-hide-t-#board" hidden
 
 yotsuba-page = !->
-  yotsuba-threads = get "4chan-hide-t-#board"
+  inject !->
+    if Config and not Config.disableAll and Config.threadHiding
+      addEventListener \storage !(e) ->
+        console.log "4chan iframe changed, hiding new threads..."
 
-  # localStorage changed, update UI
-  addEventListener \storage !(e) ->
-    inject !->
-      console.log "4chan iframe changed, hiding new threads..."
-      # TODO unhide threads
-      # make use of existing ThreadHiding.hidden hash
-      ThreadHiding.load!
-      for t in ThreadHiding.hidden
-        if $.id "sa#t"
-          unless that.hasAttribute \data-hidden
-            ThreadHiding.unwrapped_hide t
+        new-hidden =
+          try JSON.parse localStorage"4chan-hide-t-#{Main.board}" catch {}
+
+        for thread of document.querySelectorAll \.thread
+          tid = thread.id.substring 1
+          if tid in new-hidden and not tid not in ThreadHiding.hidden
+            console.log "hiding #tid on 4chan"
+            ThreadHiding.unwrapped_hide tid
+          else if document.getElementById "sa#tid" ?.hasAttribute \data-hidden
+            console.log "unhiding #tid on 4chan"
+            ThreadHiding.unwrapped_show tid
+
+        ThreadHiding.hidden = new-hidden
 
   frame = document.createElement \iframe
     &src = "//#catalog/robots.txt"
+    &id = \neet-frame
     &addEventListener \load !->
       # hide existing threads on catalog
       console.log "sending hidden threads to catalog from 4chan..."
-      for t in yotsuba-threads
-        send hide: t
+      send hide: t for t in get "4chan-hide-t-#board"
     document.head.appendChild(&)
 
   send = !->
     it.board = board
-    frame.contentWindow.postMessage it, "#pcol//#catalog"
+    # see note about chrome
+    if frame.contentWindow
+      that.postMessage it, "#pcol//#catalog"
+    else
+      inject "document.getElementById('neet-frame')
+        .contentWindow.postMessage(#{JSON.stringify(it)}, '#pcol//#catalog')"
 
   # wrap ThreadHiding to send us custom events
   inject !->
-    console.log "adding customEvent wrappers to 4chan..."
-    {hide, show} = ThreadHiding
-    ThreadHiding <<<
-      unwrapped_show: show
-      show: !(tid) ->
-        show ...
-        document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
+    if Config and not Config.disableAll and Config.threadHiding
+      console.log "adding customEvent wrappers to 4chan..."
+      ThreadHiding <<<
+        unwrapped_show: ThreadHiding.show
+        show: !(tid) ->
+          @unwrapped_show tid
+          document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
 
-      unwrapped_hide: hide
-      hide: !(tid) ->
-        hide ...
-        document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
+        unwrapped_hide: ThreadHiding.hide
+        hide: !(tid) ->
+          @unwrapped_hide tid
+          document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
 
   # listen to those
   document
@@ -186,7 +224,7 @@ case catalog
 case yotsuba
   if location.pathname is \/robots.txt
     do yotsuba-iframe
-  else if location.pathname.match /^\/([a-z]+)\/(?:\d+)?$/
+  else if location.pathname.match /^\/([a-z]+)\/(?:\d+)?$/ # board page
     board = that.1
     do yotsuba-page
 
