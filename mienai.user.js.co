@@ -176,27 +176,7 @@ yotsuba-iframe = !->
     set "4chan_x.hiddenThreads/#board/" x-hidden
 
 yotsuba-page = !->
-  inject !->
-    if Config and not Config.disableAll and Config.threadHiding
-      addEventListener \storage !(e) ->
-        console.log "4chan iframe changed, hiding new threads..."
-
-        new-hidden =
-          try JSON.parse localStorage"4chan-hide-t-#{Main.board}" catch {}
-
-        for thread of document.querySelectorAll \.thread
-          tid = thread.id.substring 1
-          if tid in new-hidden and not tid not in ThreadHiding.hidden
-            console.log "hiding #tid on 4chan"
-            ThreadHiding.unwrapped_hide tid
-          else if document.getElementById "sa#tid" ?.hasAttribute \data-hidden
-            console.log "unhiding #tid on 4chan"
-            ThreadHiding.unwrapped_show tid
-
-        ThreadHiding.hidden = new-hidden
-
   # detect 4chan-X
-  # since X is also a userscript, there's no point in injecting code
   if \4chan_x.lastUpdate in localStorage
     console.log "4chan-X detected..."
 
@@ -256,6 +236,47 @@ yotsuba-page = !->
       # should be enough time to let ThreadHiding init
       1000ms
 
+  # hook with vanilla 4chan extension
+  else
+    inject !->
+      if Config and not Config.disableAll and Config.threadHiding
+        console.log "adding customEvent wrappers to 4chan..."
+        ThreadHiding <<<
+          unwrapped_show: ThreadHiding.show
+          show: !(tid) ->
+            @unwrapped_show tid
+            document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
+
+          unwrapped_hide: ThreadHiding.hide
+          hide: !(tid) ->
+            @unwrapped_hide tid
+            document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
+
+        # listen to storage events on iframe
+        addEventListener \storage !(e) ->
+          console.log "4chan iframe changed, hiding new threads..."
+
+          new-hidden =
+            try JSON.parse localStorage"4chan-hide-t-#{Main.board}" catch {}
+
+          for thread of document.querySelectorAll \.thread
+            tid = thread.id.substring 1
+            if tid in new-hidden and not tid not in ThreadHiding.hidden
+              console.log "hiding #tid on 4chan"
+              ThreadHiding.unwrapped_hide tid
+            else if document.getElementById "sa#tid" ?.hasAttribute \data-hidden
+              console.log "unhiding #tid on 4chan"
+              ThreadHiding.unwrapped_show tid
+
+          ThreadHiding.hidden = new-hidden
+
+    # back in userscript land, listen
+    document
+      &addEventListener \4chan-hide-thread !({detail: tid}) -> send hide: tid
+      &addEventListener \4chan-show-thread !({detail: tid}) -> send show: tid
+
+  # set up portal to catalog
+
   frame = document.createElement \iframe
     &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
     &id = \neet-frame
@@ -275,27 +296,6 @@ yotsuba-page = !->
     else
       inject "document.getElementById('neet-frame')
         .contentWindow.postMessage(#{JSON.stringify it}, 'http://#catalog')"
-
-  # wrap ThreadHiding to send us custom events
-  inject !->
-    if Config and not Config.disableAll and Config.threadHiding
-      console.log "adding customEvent wrappers to 4chan..."
-      ThreadHiding <<<
-        unwrapped_show: ThreadHiding.show
-        show: !(tid) ->
-          @unwrapped_show tid
-          document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
-
-        unwrapped_hide: ThreadHiding.hide
-        hide: !(tid) ->
-          @unwrapped_hide tid
-          document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
-
-  # listen to those
-  document
-    &addEventListener \4chan-hide-thread !({detail: tid}) -> send hide: tid
-    &addEventListener \4chan-show-thread !({detail: tid}) -> send show: tid
-
 
 # route page to handler
 switch location.hostname
