@@ -194,6 +194,37 @@ yotsuba-page = !->
 
         ThreadHiding.hidden = new-hidden
 
+  # detect 4chan-X
+  # since X is also a userscript, there's no point in injecting code
+  if localStorage.getItem \4chan_x.lastUpdate
+    console.log "4chan-X detected..."
+
+    hidden = get "4chan_x.hiddenThreads/#board/"
+
+    addEventListener \storage !->
+      console.log "4chan iframe changed, hiding new threads 4chan-X style..."
+
+      new-hidden = get "4chan_x.hiddenThreads/#board/"
+
+      for thread of document.querySelectorAll \.thread
+        tid = thread.id.substring 1
+        if tid in new-hidden and not tid not in hidden
+          console.log "hiding #tid on 4chan-X"
+
+          # let 4chanX handle stub code
+          if thread.querySelector \.hide-thread-button
+            that.click!
+
+        else if thread.hidden
+          console.log "unhiding #tid on 4chan-X"
+          if thread.querySelector \.hidden_thread # stub
+            that.parentNode.removeChild that
+          thread.hidden = false
+          thread.nextElementSibling.hidden = false
+
+      hidden := new-hidden
+
+
   frame = document.createElement \iframe
     &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
     &id = \neet-frame
@@ -201,6 +232,8 @@ yotsuba-page = !->
       # hide existing threads on catalog
       console.log "sending hidden threads to catalog from 4chan..."
       send hide: t for t in get "4chan-hide-t-#board"
+      if hidden
+        send hide: t for t in hidden
     document.head.appendChild(&)
 
   send = !->
