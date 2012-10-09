@@ -18,6 +18,8 @@
 const catalog = \catalog.neet.tv
 const yotsuba = \boards.4chan.org
 
+window.MutationObserver ?= window.WebKitMutationObserver
+
 inject = !(code) ->
   document.createElement \script
     &textContent = "(
@@ -132,7 +134,7 @@ catalog-page = !->
   # on windows _other_ than the one that makes the change. I cannot fathom how
   # that is more useful than having it fire everywhere. So instead, listen to
   # DOM changes
-  o = new (window.MutationObserver or window.WebKitMutationObserver) !->
+  o = new MutationObserver !->
     console.log "checking for new hidden threads on catalog..."
 
     new-hidden = try JSON.parse localStorage."hide-#board"
@@ -196,7 +198,7 @@ yotsuba-page = !->
 
   # detect 4chan-X
   # since X is also a userscript, there's no point in injecting code
-  if localStorage.getItem \4chan_x.lastUpdate
+  if \4chan_x.lastUpdate in localStorage
     console.log "4chan-X detected..."
 
     hidden = get "4chan_x.hiddenThreads/#board/"
@@ -224,6 +226,20 @@ yotsuba-page = !->
 
       hidden := new-hidden
 
+    # observe thread hiding hidden toggle
+    o = new MutationObserver !(records) ->
+      for r of records
+        tid = target.id.substring 1
+        if r.target.hidden
+          console.log "hide #tid detected on 4chanx"
+          send hide: tid
+        else
+          console.log "show #tid detected on 4chanx"
+          send show: tid
+    # since the 15 threads will always be present, we can just listen to them
+    # explicitly
+    for thread of document.querySelectorAll \.thread
+      o.observe thread {+attributes, attributeFilter: <[hidden]>}
 
   frame = document.createElement \iframe
     &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
@@ -264,6 +280,7 @@ yotsuba-page = !->
   document
     &addEventListener \4chan-hide-thread !({detail: tid}) -> send hide: tid
     &addEventListener \4chan-show-thread !({detail: tid}) -> send show: tid
+
 
 # route page to handler
 switch location.hostname
