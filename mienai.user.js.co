@@ -18,6 +18,8 @@
 const catalog = \catalog.neet.tv
 const yotsuba = \boards.4chan.org
 
+window.MutationObserver ?= window.WebKitMutationObserver
+
 inject = !(code) ->
   document.createElement \script
     &textContent = "(
@@ -40,7 +42,6 @@ set = !(key, val) -> localStorage[key] = JSON.stringify val
 # Handlers for each class of page
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
-    console.log origin
     # the catalog only exists on HTTP, so explicitly handle both 4chan origins
     unless data? and (origin is "http://#yotsuba" or origin is "https://#yotsuba")
       return
@@ -132,15 +133,19 @@ catalog-page = !->
   # on windows _other_ than the one that makes the change. I cannot fathom how
   # that is more useful than having it fire everywhere. So instead, listen to
   # DOM changes
-  o = new (window.MutationObserver or window.WebKitMutationObserver) !->
+  o = new MutationObserver !->
     console.log "checking for new hidden threads on catalog..."
 
     new-hidden = try JSON.parse localStorage."hide-#board"
     if new-hidden
       for t in new-hidden
-        send hide: t unless t in hidden # was already hidden
+        unless t in hidden # was already hidden
+          console.log "sending hide: #t to 4chan"
+          send hide: t
       for t in hidden
-        send show: t unless t in new-hidden # no longer hidden
+        unless t in new-hidden # no longer hidden
+          console.log "sending show: #t to 4chan"
+          send show: t
     else
       # hash was removed, unhide all
       send show: t for t in hidden
@@ -158,37 +163,139 @@ yotsuba-iframe = !->
   addEventListener \message !({data, origin}: e) ->
     return unless data? and origin is "http://#catalog"
 
-    if (board = data.board)
-      hidden = get "4chan-hide-t-#board"
+    return unless (board = data.board)
 
-      if data.hide
-        console.log "setting hide: #that on 4chan iframe"
-        hidden[that] = Date.now!
-      else if data.show
-        console.log "setting show: #that on 4chan iframe"
-        delete hidden[that]
+    yotsuba-hidden = get "4chan-hide-t-#board"
+    x-hidden = get "4chan_x.hiddenThreads/#board/"
 
-      set "4chan-hide-t-#board" hidden
+    if data.hide
+      console.log "setting hide: #that on 4chan #{location.protocol} iframe"
+      yotsuba-hidden[that] = x-hidden[that] = Date.now!
+    else if data.show
+      console.log "setting show: #that on 4chan #{location.protocol} iframe"
+      delete yotsuba-hidden[that]
+      delete x-hidden[that]
+
+    set "4chan-hide-t-#board" yotsuba-hidden
+    set "4chan_x.hiddenThreads/#board/" x-hidden
 
 yotsuba-page = !->
-  inject !->
-    if Config and not Config.disableAll and Config.threadHiding
-      addEventListener \storage !(e) ->
-        console.log "4chan iframe changed, hiding new threads..."
+  # detect 4chan-X
+  if \4chan_x.lastUpdate in localStorage
 
-        new-hidden =
-          try JSON.parse localStorage"4chan-hide-t-#{Main.board}" catch {}
+    addEventListener \storage !->
+      console.log "4chan iframe changed, hiding new threads 4chan-X style..."
 
-        for thread of document.querySelectorAll \.thread
-          tid = thread.id.substring 1
-          if tid in new-hidden and not tid not in ThreadHiding.hidden
-            console.log "hiding #tid on 4chan"
-            ThreadHiding.unwrapped_hide tid
-          else if document.getElementById "sa#tid" ?.hasAttribute \data-hidden
-            console.log "unhiding #tid on 4chan"
-            ThreadHiding.unwrapped_show tid
+      hidden = get "4chan_x.hiddenThreads/#board/"
+        console.log(&)
 
-        ThreadHiding.hidden = new-hidden
+      for thread of document.querySelectorAll \.thread
+        tid = thread.id.substring 1
+        if tid in hidden \
+           and not ( \
+             thread.hidden \
+             or thread.firstElementChild.classList.contains \hidden-thread )
+
+          console.log "hiding #tid on 4chan-X"
+
+          # let 4chanX handle stub code by clicking the hide button, with
+          # special sentinel to prevent detection loops
+          if thread.querySelector \.hide_thread_button
+            console.log "clicking hide button"
+            document.createEvent \MouseEvent
+              &initMouseEvent do
+                \click true true
+                window
+                10 # click count, used here as sentinel value
+                0 0 0 0 # position
+                false false false false # modifiers
+                0 # button
+                null
+              that.dispatchEvent(&)
+
+        if tid not in hidden \
+           and (thread.hidden \
+                or (that = thread.querySelector \.hidden_thread))
+          console.log "unhiding #tid on 4chan-X"
+          that?parentNode.removeChild that # stub
+          thread.hidden = false
+          thread.nextElementSibling.hidden = false
+
+    # since the 15 threads will always be present, we can just listen to the
+    # button clicks explicitly
+    setTimeout do
+      !->
+        for button of document.querySelectorAll \.hide_thread_button
+          button.addEventListener \click !({detail}) ->
+            thread = @parentNode
+            tid = thread.id.substring 1
+
+            # wait till 4chanX kicks in
+            setTimeout do
+              !~>
+                stub = @previousSibling
+                unless detail is 10 # click sent from storage listener
+                  if thread.hidden or stub?classList.contains \hidden_thread
+                    console.log "hiding #tid detected on 4chanx..."
+                    send hide: tid
+
+                # add opposite listener on newly created stub, if it exists
+                console.log "adding new stub listener"
+                stub?addEventListener \click !->
+                  console.log "unhiding #tid detected on 4chanx..."
+                  send show: tid
+              10ms
+
+        # the show thread button on the stub is actually a whole separate
+        # button, so attach listners to those that exist
+        for button of document.querySelectorAll \.hide_thread_button.hidden_thread
+          let tid = button.parentNode.id.substring 1
+            button.addEventListener \click !->
+              console.log "unhiding #tid detected on 4chanx..."
+              send hide: tid
+      # should be enough time to let ThreadHiding init
+      1000ms
+
+  # hook with vanilla 4chan extension
+  else
+    inject !->
+      if Config and not Config.disableAll and Config.threadHiding
+        console.log "adding customEvent wrappers to 4chan..."
+        ThreadHiding <<<
+          unwrapped_show: ThreadHiding.show
+          show: !(tid) ->
+            @unwrapped_show tid
+            document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
+
+          unwrapped_hide: ThreadHiding.hide
+          hide: !(tid) ->
+            @unwrapped_hide tid
+            document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
+
+        # listen to storage events on iframe
+        addEventListener \storage !(e) ->
+          console.log "4chan iframe changed, hiding new threads..."
+
+          new-hidden =
+            try JSON.parse localStorage"4chan-hide-t-#{Main.board}" catch {}
+
+          for thread of document.querySelectorAll \.thread
+            tid = thread.id.substring 1
+            if tid in new-hidden and not tid not in ThreadHiding.hidden
+              console.log "hiding #tid on 4chan"
+              ThreadHiding.unwrapped_hide tid
+            else if document.getElementById "sa#tid" ?.hasAttribute \data-hidden
+              console.log "unhiding #tid on 4chan"
+              ThreadHiding.unwrapped_show tid
+
+          ThreadHiding.hidden = new-hidden
+
+    # back in userscript land, listen
+    document
+      &addEventListener \4chan-hide-thread !({detail: tid}) -> send hide: tid
+      &addEventListener \4chan-show-thread !({detail: tid}) -> send show: tid
+
+  # set up portal to catalog
 
   frame = document.createElement \iframe
     &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
@@ -197,6 +304,7 @@ yotsuba-page = !->
       # hide existing threads on catalog
       console.log "sending hidden threads to catalog from 4chan..."
       send hide: t for t in get "4chan-hide-t-#board"
+      send hide: t for t in get "4chan_x.hiddenThreads/#board/"
     document.head.appendChild(&)
 
   send = !->
@@ -207,26 +315,6 @@ yotsuba-page = !->
     else
       inject "document.getElementById('neet-frame')
         .contentWindow.postMessage(#{JSON.stringify it}, 'http://#catalog')"
-
-  # wrap ThreadHiding to send us custom events
-  inject !->
-    if Config and not Config.disableAll and Config.threadHiding
-      console.log "adding customEvent wrappers to 4chan..."
-      ThreadHiding <<<
-        unwrapped_show: ThreadHiding.show
-        show: !(tid) ->
-          @unwrapped_show tid
-          document.dispatchEvent new CustomEvent \4chan-show-thread detail: tid
-
-        unwrapped_hide: ThreadHiding.hide
-        hide: !(tid) ->
-          @unwrapped_hide tid
-          document.dispatchEvent new CustomEvent \4chan-hide-thread detail: tid
-
-  # listen to those
-  document
-    &addEventListener \4chan-hide-thread !({detail: tid}) -> send hide: tid
-    &addEventListener \4chan-show-thread !({detail: tid}) -> send show: tid
 
 # route page to handler
 switch location.hostname
