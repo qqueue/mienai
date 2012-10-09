@@ -139,9 +139,13 @@ catalog-page = !->
     new-hidden = try JSON.parse localStorage."hide-#board"
     if new-hidden
       for t in new-hidden
-        send hide: t unless t in hidden # was already hidden
+        unless t in hidden # was already hidden
+          console.log "sending hide: #t to 4chan"
+          send hide: t
       for t in hidden
-        send show: t unless t in new-hidden # no longer hidden
+        unless t in new-hidden # no longer hidden
+          console.log "sending show: #t to 4chan"
+          send show: t
     else
       # hash was removed, unhide all
       send show: t for t in hidden
@@ -165,68 +169,86 @@ yotsuba-iframe = !->
     x-hidden = get "4chan_x.hiddenThreads/#board/"
 
     if data.hide
-      console.log "setting hide: #that on 4chan iframe"
+      console.log "setting hide: #that on 4chan #{location.protocol} iframe"
       yotsuba-hidden[that] = x-hidden[that] = Date.now!
     else if data.show
-      console.log "setting show: #that on 4chan iframe"
+      console.log "setting show: #that on 4chan #{location.protocol} iframe"
       delete yotsuba-hidden[that]
       delete x-hidden[that]
 
+    console.log x-hidden
     set "4chan-hide-t-#board" yotsuba-hidden
     set "4chan_x.hiddenThreads/#board/" x-hidden
+    console.log get "4chan_x.hiddenThreads/#board/"
 
 yotsuba-page = !->
   # detect 4chan-X
   if \4chan_x.lastUpdate in localStorage
-    console.log "4chan-X detected..."
-
-    hidden = get "4chan_x.hiddenThreads/#board/"
 
     addEventListener \storage !->
       console.log "4chan iframe changed, hiding new threads 4chan-X style..."
 
-      new-hidden = get "4chan_x.hiddenThreads/#board/"
+      hidden = get "4chan_x.hiddenThreads/#board/"
+        console.log(&)
 
       for thread of document.querySelectorAll \.thread
         tid = thread.id.substring 1
-        if tid in new-hidden and not tid not in hidden
+        if tid in hidden \
+           and not ( \
+             thread.hidden \
+             or thread.firstElementChild.classList.contains \hidden-thread )
+
           console.log "hiding #tid on 4chan-X"
 
-          # let 4chanX handle stub code
-          if thread.querySelector \.hide-thread-button
-            that.click!
+          # let 4chanX handle stub code by clicking the hide button, with
+          # special sentinel to prevent detection loops
+          if thread.querySelector \.hide_thread_button
+            console.log "clicking hide button"
+            document.createEvent \MouseEvent
+              &initMouseEvent do
+                \click true true
+                window
+                10 # click count, used here as sentinel value
+                0 0 0 0 # position
+                false false false false # modifiers
+                0 # button
+                null
+              that.dispatchEvent(&)
 
-        else if thread.hidden
+        if tid not in hidden \
+           and (thread.hidden \
+                or (that = thread.querySelector \.hidden_thread))
           console.log "unhiding #tid on 4chan-X"
-          if thread.querySelector \.hidden_thread # stub
-            that.parentNode.removeChild that
+          that?parentNode.removeChild that # stub
           thread.hidden = false
           thread.nextElementSibling.hidden = false
-
-      hidden := new-hidden
 
     # since the 15 threads will always be present, we can just listen to the
     # button clicks explicitly
     setTimeout do
       !->
         for button of document.querySelectorAll \.hide_thread_button
-          button.addEventListener \click !->
+          button.addEventListener \click !({detail}) ->
             thread = @parentNode
             tid = thread.id.substring 1
-            # the stub logic is kind of confusing and doesn't actually set
-            # hidden on the thread element, so detect the original button
-            # display
-            if thread.hidden or getComputedStyle(this).display is \none
-              console.log "hiding #tid detected on 4chanx..."
-              send hide: tid
 
-              # add opposite listener on newly created stub, if it exists
-              if (stub = @previousSibling)?classList.contains \hide_thread_button
-                stub.addEventListener \click !->
+            # wait till 4chanX kicks in
+            setTimeout do
+              !~>
+                stub = @previousSibling
+                unless detail is 10 # click sent from storage listener
+                  if thread.hidden or stub?classList.contains \hidden_thread
+                    console.log "hiding #tid detected on 4chanx..."
+                    send hide: tid
+
+                # add opposite listener on newly created stub, if it exists
+                console.log "adding new stub listener"
+                stub?addEventListener \click !->
                   console.log "unhiding #tid detected on 4chanx..."
                   send show: tid
+              10ms
 
-        # the show thread button on the stubis actually a whole separate
+        # the show thread button on the stub is actually a whole separate
         # button, so attach listners to those that exist
         for button of document.querySelectorAll \.hide_thread_button.hidden_thread
           let tid = button.parentNode.id.substring 1
@@ -284,8 +306,7 @@ yotsuba-page = !->
       # hide existing threads on catalog
       console.log "sending hidden threads to catalog from 4chan..."
       send hide: t for t in get "4chan-hide-t-#board"
-      if hidden
-        send hide: t for t in hidden
+      send hide: t for t in get "4chan_x.hiddenThreads/#board/"
     document.head.appendChild(&)
 
   send = !->
