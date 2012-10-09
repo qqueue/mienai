@@ -42,7 +42,6 @@ set = !(key, val) -> localStorage[key] = JSON.stringify val
 # Handlers for each class of page
 catalog-iframe =  !->
   addEventListener \message !({data, origin}: e) ->
-    console.log origin
     # the catalog only exists on HTTP, so explicitly handle both 4chan origins
     unless data? and (origin is "http://#yotsuba" or origin is "https://#yotsuba")
       return
@@ -226,20 +225,36 @@ yotsuba-page = !->
 
       hidden := new-hidden
 
-    # observe thread hiding hidden toggle
-    o = new MutationObserver !(records) ->
-      for r of records
-        tid = target.id.substring 1
-        if r.target.hidden
-          console.log "hide #tid detected on 4chanx"
-          send hide: tid
-        else
-          console.log "show #tid detected on 4chanx"
-          send show: tid
-    # since the 15 threads will always be present, we can just listen to them
-    # explicitly
-    for thread of document.querySelectorAll \.thread
-      o.observe thread {+attributes, attributeFilter: <[hidden]>}
+    # since the 15 threads will always be present, we can just listen to the
+    # button clicks explicitly
+    setTimeout do
+      !->
+        for button of document.querySelectorAll \.hide_thread_button
+          button.addEventListener \click !->
+            thread = @parentNode
+            tid = thread.id.substring 1
+            # the stub logic is kind of confusing and doesn't actually set
+            # hidden on the thread element, so detect the original button
+            # display
+            if thread.hidden or getComputedStyle(this).display is \none
+              console.log "hiding #tid detected on 4chanx..."
+              send hide: tid
+
+              # add opposite listener on newly created stub, if it exists
+              if (stub = @previousSibling)?classList.contains \hide_thread_button
+                stub.addEventListener \click !->
+                  console.log "unhiding #tid detected on 4chanx..."
+                  send show: tid
+
+        # the show thread button on the stubis actually a whole separate
+        # button, so attach listners to those that exist
+        for button of document.querySelectorAll \.hide_thread_button.hidden_thread
+          let tid = button.parentNode.id.substring 1
+            button.addEventListener \click !->
+              console.log "unhiding #tid detected on 4chanx..."
+              send hide: tid
+      # should be enough time to let ThreadHiding init
+      1000ms
 
   frame = document.createElement \iframe
     &src = "http://#catalog/robots.txt" # catalog is only HTTP, no S
