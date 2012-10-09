@@ -8,9 +8,11 @@ this userscript will keep your threads hidden in either view.
 It even works in real-time! Try it out with two windows or tabs. Cool? Yes.
 Near useless? Yes.
 
-**Right now, only the [built-in 4chan
-extension](https://github.com/4chan/4chan-JS)'s "Thread Hiding" feature is
-supported. Stand by for a 4chan-X version.**
+`mienai` works with both the [built-in 4chan
+extension](https://github.com/4chan/4chan-JS)'s "Thread Hiding" feature and
+4chan x >=2.36.0's Thread hiding. If you use something more esoteric, you may
+want to convince the author of the script to just use native 4chan's thread
+hiding hashes on `localStorage`.
 
 # Installation
 
