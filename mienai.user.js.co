@@ -158,17 +158,21 @@ yotsuba-iframe = !->
   addEventListener \message !({data, origin}: e) ->
     return unless data? and origin is "http://#catalog"
 
-    if (board = data.board)
-      hidden = get "4chan-hide-t-#board"
+    return unless (board = data.board)
 
-      if data.hide
-        console.log "setting hide: #that on 4chan iframe"
-        hidden[that] = Date.now!
-      else if data.show
-        console.log "setting show: #that on 4chan iframe"
-        delete hidden[that]
+    yotsuba-hidden = get "4chan-hide-t-#board"
+    x-hidden = get "4chan_x.hiddenThreads/#board/"
 
-      set "4chan-hide-t-#board" hidden
+    if data.hide
+      console.log "setting hide: #that on 4chan iframe"
+      yotsuba-hidden[that] = x-hidden[that] = Date.now!
+    else if data.show
+      console.log "setting show: #that on 4chan iframe"
+      delete yotsuba-hidden[that]
+      delete x-hidden[that]
+
+    set "4chan-hide-t-#board" yotsuba-hidden
+    set "4chan_x.hiddenThreads/#board/" x-hidden
 
 yotsuba-page = !->
   inject !->
