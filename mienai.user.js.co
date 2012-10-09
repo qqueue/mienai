@@ -176,10 +176,8 @@ yotsuba-iframe = !->
       delete yotsuba-hidden[that]
       delete x-hidden[that]
 
-    console.log x-hidden
     set "4chan-hide-t-#board" yotsuba-hidden
     set "4chan_x.hiddenThreads/#board/" x-hidden
-    console.log get "4chan_x.hiddenThreads/#board/"
 
 yotsuba-page = !->
   # detect 4chan-X
