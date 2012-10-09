@@ -4,7 +4,7 @@
 // @description Hidden thread synchronization between 4chan and catalog.neet.tv.
 // @namespace   http://hakase.org
 //
-// @version     0.2.0
+// @version     0.3.0
 //
 // @match       http://catalog.neet.tv/*
 // @match       *://boards.4chan.org/*
